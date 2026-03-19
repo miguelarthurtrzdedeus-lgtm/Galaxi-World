@@ -1,0 +1,176 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8">
+<title>Neon Colony Oficial</title>
+
+<style>
+body{margin:0;overflow:hidden;background:#000;font-family:Arial;color:#0ff}
+#menu{position:absolute;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center;background:#000}
+input,button{padding:10px;margin:5px;border:none}
+button{background:#0ff;color:#000;font-weight:bold}
+#hud{position:absolute;top:10px;left:10px}
+#chat{position:absolute;bottom:0;width:100%}
+#chat input{width:100%}
+</style>
+</head>
+
+<body>
+
+<div id="menu">
+<h1>NEON COLONY ONLINE</h1>
+<input id="user" placeholder="Usuário">
+<input id="pass" type="password" placeholder="Senha">
+<button onclick="login()">LOGIN</button>
+<button onclick="start()">OFFLINE</button>
+</div>
+
+<div id="hud">💰 <span id="money">0</span></div>
+
+<div id="chat">
+<input id="msg" placeholder="chat..." onkeydown="sendMsg(event)">
+</div>
+
+<script src="https://cdn.jsdelivr.net/npm/three@0.160/build/three.min.js"></script>
+
+<script>
+// ================== VARIÁVEIS ==================
+let scene, camera, renderer;
+let player, velocity={x:0,z:0};
+let keys = {};
+let socket;
+let players = {};
+let meshes = {};
+let money = 0;
+
+// ================== LOGIN ==================
+async function login(){
+ let res = await fetch("http://localhost:3000/login",{
+  method:"POST",
+  headers:{"Content-Type":"application/json"},
+  body: JSON.stringify({u:user.value,p:pass.value})
+ });
+ let data = await res.json();
+ if(data.ok){
+  money = data.money;
+  start(true);
+ }else alert("Erro login");
+}
+
+// ================== START ==================
+function start(online=false){
+
+menu.style.display="none";
+
+scene = new THREE.Scene();
+
+camera = new THREE.PerspectiveCamera(75,innerWidth/innerHeight,0.1,1000);
+
+renderer = new THREE.WebGLRenderer({antialias:true});
+renderer.setSize(innerWidth,innerHeight);
+document.body.appendChild(renderer.domElement);
+
+// luz
+let light = new THREE.DirectionalLight(0xffffff,1);
+scene.add(light);
+
+// chão
+let floor = new THREE.Mesh(
+ new THREE.PlaneGeometry(200,200),
+ new THREE.MeshStandardMaterial({color:0x222222})
+);
+floor.rotation.x = -Math.PI/2;
+scene.add(floor);
+
+// player
+player = new THREE.Mesh(
+ new THREE.BoxGeometry(1,2,1),
+ new THREE.MeshStandardMaterial({color:0x00ffff})
+);
+player.position.y = 1;
+scene.add(player);
+
+// controles
+window.onkeydown = e=>keys[e.key]=true;
+window.onkeyup = e=>keys[e.key]=false;
+
+// multiplayer
+if(online){
+ socket = new WebSocket("ws://localhost:3001");
+
+ socket.onmessage = e=>{
+  players = JSON.parse(e.data);
+ };
+}
+
+// loop
+loop();
+}
+
+// ================== UPDATE ==================
+function update(){
+
+let acc = 0.05;
+
+if(keys["w"]) velocity.z -= acc;
+if(keys["s"]) velocity.z += acc;
+if(keys["a"]) velocity.x -= acc;
+if(keys["d"]) velocity.x += acc;
+
+velocity.x*=0.9;
+velocity.z*=0.9;
+
+player.position.x += velocity.x;
+player.position.z += velocity.z;
+
+// enviar multiplayer
+if(socket && socket.readyState===1){
+ socket.send(JSON.stringify({
+  x:player.position.x,
+  z:player.position.z
+ }));
+}
+
+// desenhar outros
+for(let id in players){
+ if(!meshes[id]){
+  meshes[id] = new THREE.Mesh(
+   new THREE.BoxGeometry(1,2,1),
+   new THREE.MeshStandardMaterial({color:0xff00ff})
+  );
+  scene.add(meshes[id]);
+ }
+
+ meshes[id].position.x += (players[id].x - meshes[id].position.x)*0.2;
+ meshes[id].position.z += (players[id].z - meshes[id].position.z)*0.2;
+}
+
+// câmera GTA
+camera.position.x += (player.position.x - camera.position.x)*0.1;
+camera.position.z += (player.position.z + 6 - camera.position.z)*0.1;
+camera.position.y = 5;
+camera.lookAt(player.position);
+
+// HUD
+moneyEl.innerText = money;
+}
+
+function loop(){
+ requestAnimationFrame(loop);
+ update();
+ renderer.render(scene,camera);
+}
+
+let moneyEl = document.getElementById("money");
+
+// ================== CHAT ==================
+function sendMsg(e){
+ if(e.key==="Enter" && socket){
+  socket.send(JSON.stringify({chat:msg.value}));
+  msg.value="";
+ }
+}
+</script>
+
+</body>
+</html>
